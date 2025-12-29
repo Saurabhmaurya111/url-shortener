@@ -1,43 +1,47 @@
 const express = require("express");
-const URL = require("./models/url");
-const urlRoute = require("./routes/url");
 const path = require("path");
-const {connectDB} = require("./connect");
+const cookieParser = require("cookie-parser");
+const { connectToMongoDB } = require("./connect");
+const { restrictToLoggedinUserOnly, checkAuth } = require("./middlewares/auth");
+const URL = require("./models/url");
+
+const urlRoute = require("./routes/url");
+const staticRoute = require("./routes/staticRouter");
+const userRoute = require("./routes/user");
 
 const app = express();
 const PORT = 8001;
-connectDB("mongodb://127.0.0.1:27017/short-url").then(() => {
+connectToMongoDB("mongodb://127.0.0.1:27017/short-url").then(() => {
     console.log(`connected to DB`);
 })
  
 // middleware
+app.set("view engine", "ejs");
+app.set("views", path.resolve("./views"));
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+app.use(cookieParser());
 
-app.use("/url" , urlRoute)
-app.set("view engine" , "ejs")
-app.set("views" , path.resolve("./views") )
+app.use("/url", restrictToLoggedinUserOnly, urlRoute);
+app.use("/user", userRoute);
+app.use("/", checkAuth, staticRoute);
 
-app.get("/test" , async (req, res) => {
-    const allUrls = await URL.find({})
-    res.render("home", {
-
-        urls : allUrls
-    });
+app.get("/url/:shortId", async (req, res) => {
+  const shortId = req.params.shortId;
+  const entry = await URL.findOneAndUpdate(
+    {
+      shortId,
+    },
+    {
+      $push: {
+        visitHistory: {
+          timestamp: Date.now(),
+        },
+      },
+    }
+  );
+  res.redirect(entry.redirectURL);
 });
- 
-app.get("/api/:shortId" , async(req, res)=>{
-     const shortId = req.params.shortId;
-     const entry = await URL.findOneAndUpdate(
-        {shortId},
-        {
-            $push:{
-                vistedHistory: {timeStamp:Date.now()}
-            }
-        }
-     ) ;
-     res.redirect(entry.redirectedUrl);
-})
 
-
-
-app.listen(PORT , () => {console.log(`Server is live at PORT : ${PORT}`)})
+app.listen(PORT, () => console.log(`Server Started at PORT:${PORT}`));
